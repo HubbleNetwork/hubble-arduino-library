@@ -1,0 +1,70 @@
+name: Sync Hubble SDK
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "SDK git ref (branch, tag, or SHA) in HubbleNetwork/sdk"
+        required: true
+        type: string
+
+jobs:
+  sync-and-open-pr:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write        # needed to push branch / create commits
+      pull-requests: write   # needed to open PRs
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Prepare hubble_sdk directory
+        run: |
+          rm -rf hubble_sdk
+          mkdir -p hubble_sdk
+
+      - name: Checkout HubbleNetwork/sdk at requested ref into hubble_sdk/
+        uses: actions/checkout@v4
+        with:
+          repository: HubbleNetwork/sdk
+          ref: ${{ github.event.inputs.ref }}
+          path: hubble_sdk
+
+      - name: Copying includes to src/
+        run: |
+          mv hubble_sdk/include/hubble src/
+
+      - name: Compute metadata (branch name, etc.)
+        id: meta
+        run: |
+          REF="${{ github.event.inputs.ref }}"
+          # sanitize ref for use in branch name (replace slashes with dashes)
+          SAFE_REF="${REF//\//-}"
+          BRANCH="sync-hubble-sdk-${SAFE_REF}"
+
+          echo "ref=$REF" >> "$GITHUB_OUTPUT"
+          echo "safe_ref=$SAFE_REF" >> "$GITHUB_OUTPUT"
+          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ steps.meta.outputs.branch }}
+          commit-message: "Sync HubbleNetwork/sdk @ ${{ steps.meta.outputs.ref }}"
+          committer: GitHub <noreply@github.com>
+          author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: ${{ steps.meta.outputs.ref }}
+          body: |
+            This PR syncs [`HubbleNetwork/sdk`](https://github.com/HubbleNetwork/sdk)
+            into the `hubble_sdk/` directory at ref:
+
+            - Ref: `${{ steps.meta.outputs.ref }}`
+            - Source: https://github.com/HubbleNetwork/sdk/tree/${{ steps.meta.outputs.ref }}
+
+            Generated automatically by the *Sync Hubble SDK* workflow.
+          labels: |
+            hubble-sdk-sync
+          delete-branch: true

@@ -1,0 +1,20 @@
+name: Arduino Lint
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Run Arduino Lint
+        uses: arduino/arduino-lint-action@v1
+        with:
+          # Optional: Configure compliance strictness (e.g., 'strict', 'moderate', 'loose')
+          compliance: strict
+          # Optional: Check for Library Manager submission requirements
+          library-manager: submit
