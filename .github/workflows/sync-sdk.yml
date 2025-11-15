@@ -1,0 +1,136 @@
+name: Sync files from HubbleNetwork/sdk
+
+on:
+  workflow_dispatch:
+    inputs:
+      sdk_ref:
+        description: 'Branch, tag, or commit hash in HubbleNetwork/sdk'
+        required: true
+        type: string
+
+jobs:
+  sync-sdk:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to push a branch
+      pull-requests: write   # needed to open a PR
+
+    env:
+      SDK_REPO: HubbleNetwork/sdk
+      # List of files (relative to the root of HubbleNetwork/sdk) to sync.
+      # Example: sdk/src/foo.c -> src/foo.c (same relative path, minus the leading "sdk/")
+      #
+      # For sdk/src/foo.c in the SDK repo, you put "src/foo.c" here.
+      # Add one file per line.
+      SDK_FILES: |
+        src/hubble_ble.c
+        src/crypto
+        src/utils
+        include
+
+    steps:
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Checkout SDK repository
+        uses: actions/checkout@v4
+        with:
+          repository: ${{ env.SDK_REPO }}
+          path: sdk
+          ref: ${{ github.event.inputs.sdk_ref }}
+
+      - name: Sync files from SDK
+        run: |
+          set -euo pipefail
+
+          echo "Syncing files from ${SDK_REPO} @ '${{ github.event.inputs.sdk_ref }}'"
+
+          while IFS= read -r raw_item; do
+            # Skip empty lines
+            [ -z "$raw_item" ] && continue
+
+            # Trim leading/trailing whitespace and remove trailing slash
+            item="$(echo "$raw_item" | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//' )"
+            [ -z "$item" ] && continue
+            item="${item%/}"
+
+            src_path="sdk/$item"    # path inside SDK repo
+
+            # Compute destination path under this repo's src/ directory
+            if [ "$item" = "src" ]; then
+              # syncing entire sdk/src -> this repo src/
+              dst_path="src"
+            elif [[ "$item" == src/* ]]; then
+              # preserve path under src/
+              rel="${item#src/}"
+              dst_path="src/$rel"
+            else
+              # strip the top-level component for non-src items:
+              # include/hubble/... -> hubble/..., placed into src/hubble/...
+              if [[ "$item" == */* ]]; then
+                dst_path="src/${item#*/}"
+              else
+                # single component (no slash) -> place it directly under src/
+                dst_path="src/$item"
+              fi
+            fi
+
+            if [ -d "$src_path" ]; then
+              echo "Syncing directory $src_path -> $dst_path"
+              mkdir -p "$dst_path"
+              # Use rsync to copy directory contents (preserves nested structure)
+              rsync -av "$src_path"/ "$dst_path"/
+
+            elif [ -f "$src_path" ]; then
+              echo "Copying file $src_path -> $dst_path"
+              mkdir -p "$(dirname "$dst_path")"
+              cp "$src_path" "$dst_path"
+
+            else
+              echo "WARNING: $src_path does not exist in ${SDK_REPO} @ '${{ github.event.inputs.sdk_ref }}'" >&2
+            fi
+          done <<< "$SDK_FILES"
+
+
+      - name: Check for changes
+        id: git_diff
+        run: |
+          # configure a committer (optional but helpful)
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          # ensure new files are staged so we detect them
+          git add -A
+
+          # check the index for staged changes
+          if git diff --cached --quiet; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+
+      - name: No changes
+        if: steps.git_diff.outputs.changed == 'false'
+        run: echo "No changes to commit; skipping pull request."
+
+      - name: Create pull request
+        if: steps.git_diff.outputs.changed == 'true'
+        uses: peter-evans/create-pull-request@v7
+        with:
+          branch: sdk-sync/${{ github.run_id }}
+          title: Sync SDK files from ${{ github.event.inputs.sdk_ref }}
+          commit-message: Sync SDK files from ${{ github.event.inputs.sdk_ref }}
+          body: |
+            This PR syncs selected files from https://github.com/HubbleNetwork/sdk at ref `${{ github.event.inputs.sdk_ref }}`.
+
+            Files copied (SDK → this repo):
+
+            ${{ env.SDK_FILES }}
+
+            Commit contains:
+            $(git --no-pager diff --name-status HEAD)
+          labels: |
+            sdk-sync
