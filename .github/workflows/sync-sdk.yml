@@ -1,12 +1,21 @@
 name: Sync Hubble SDK
 
+# An Arduino library cannot fetch submodules, so rather than pin the SDK with
+# one, this workflow clones HubbleNetwork/hubble-device-sdk itself and copies
+# in only the files this library actually compiles: the sources named in
+# src/import_sources.c (plus the private headers they pull in with them),
+# into extras/hubble-device-sdk/src/, and the public include/hubble/ headers
+# into src/hubble/. Everything else in the SDK is left behind. Use this
+# workflow to move that pin and rebuild the copies.
+
 on:
   workflow_dispatch:
     inputs:
       ref:
-        description: "SDK git ref (branch, tag, or SHA) in HubbleNetwork/sdk"
-        required: true
+        description: "SDK git ref (branch, tag, or SHA) in HubbleNetwork/hubble-device-sdk"
+        required: false
         type: string
+        default: "v3.0.0"
 
 jobs:
   sync-and-open-pr:
@@ -20,51 +29,77 @@ jobs:
       - name: Checkout current repo
         uses: actions/checkout@v4
 
-      - name: Prepare hubble_sdk directory
+      - name: Fetch the SDK at the requested ref
+        id: fetch
         run: |
-          rm -rf hubble_sdk
-          mkdir -p hubble_sdk
+          set -euo pipefail
+          git clone https://github.com/HubbleNetwork/hubble-device-sdk.git sdk-src
+          git -C sdk-src checkout --detach "${{ inputs.ref }}"
 
-      - name: Checkout HubbleNetwork/sdk at requested ref into hubble_sdk/
-        uses: actions/checkout@v4
-        with:
-          repository: HubbleNetwork/sdk
-          ref: ${{ github.event.inputs.ref }}
-          path: hubble_sdk
+          echo "commit=$(git -C sdk-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git -C sdk-src rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
 
-      - name: Copying includes to src/
+      - name: Rebuild the copies from the fetched SDK
+        id: rebuild
         run: |
-          mv hubble_sdk/include/hubble src/
+          set -euo pipefail
 
-      - name: Compute metadata (branch name, etc.)
-        id: meta
+          # Copied whole and replaced rather than merged, so that a file the
+          # SDK adds arrives on the next sync and one it drops does not linger.
+          rm -rf src/hubble
+          cp -a sdk-src/include/hubble src/hubble
+
+          # Only the sources src/import_sources.c actually compiles, plus the
+          # private headers they include -- not the rest of the SDK's src/.
+          # This has to live under extras/, not src/, because Arduino
+          # recursively compiles every .c file under src/ on its own; putting
+          # these there would compile them a second time as their own
+          # translation units, on top of import_sources.c's #include of them,
+          # and fail to link on the duplicate symbols.
+          rm -rf extras/hubble-device-sdk
+          mkdir -p extras/hubble-device-sdk/src/crypto extras/hubble-device-sdk/src/utils
+          cp -a sdk-src/src/hubble.c extras/hubble-device-sdk/src/hubble.c
+          cp -a sdk-src/src/hubble_ble.c extras/hubble-device-sdk/src/hubble_ble.c
+          cp -a sdk-src/src/hubble_crypto.c extras/hubble-device-sdk/src/hubble_crypto.c
+          cp -a sdk-src/src/hubble_priv.h extras/hubble-device-sdk/src/hubble_priv.h
+          cp -a sdk-src/src/crypto/mbedtls.c extras/hubble-device-sdk/src/crypto/mbedtls.c
+          cp -a sdk-src/src/crypto/psa.c extras/hubble-device-sdk/src/crypto/psa.c
+          cp -a sdk-src/src/utils/hdcv.h extras/hubble-device-sdk/src/utils/hdcv.h
+          cp -a sdk-src/src/utils/macros.h extras/hubble-device-sdk/src/utils/macros.h
+
+          rm -rf sdk-src
+
+      - name: Verify the committed copies match
+        if: github.event_name != 'workflow_dispatch'
         run: |
-          REF="${{ github.event.inputs.ref }}"
-          # sanitize ref for use in branch name (replace slashes with dashes)
-          SAFE_REF="${REF//\//-}"
-          BRANCH="sync-hubble-sdk-${SAFE_REF}"
-
-          echo "ref=$REF" >> "$GITHUB_OUTPUT"
-          echo "safe_ref=$SAFE_REF" >> "$GITHUB_OUTPUT"
-          echo "branch=$BRANCH" >> "$GITHUB_OUTPUT"
+          set -euo pipefail
+          git add -A src/hubble extras/hubble-device-sdk
+          if git diff --cached --quiet HEAD -- src/hubble extras/hubble-device-sdk; then
+            echo "The vendored SDK files match the SDK at ${{ steps.fetch.outputs.short }}."
+            exit 0
+          fi
+          echo "::error::The vendored SDK files are copies of the SDK pinned at ${{ steps.fetch.outputs.short }}, not places to make changes. To refresh them, run this workflow from the Actions tab."
+          git diff --cached --stat HEAD -- src/hubble extras/hubble-device-sdk
+          exit 1
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
-          branch: ${{ steps.meta.outputs.branch }}
-          commit-message: "Sync HubbleNetwork/sdk @ ${{ steps.meta.outputs.ref }}"
+          add-paths: |
+            src/hubble
+            extras/hubble-device-sdk
+          branch: sync-hubble-sdk-${{ steps.fetch.outputs.short }}
+          commit-message: "Sync hubble-device-sdk @ ${{ steps.fetch.outputs.short }}"
           committer: GitHub <noreply@github.com>
           author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
-          title: ${{ steps.meta.outputs.ref }}
+          title: "Sync hubble-device-sdk @ ${{ steps.fetch.outputs.short }}"
           body: |
-            This PR syncs [`HubbleNetwork/sdk`](https://github.com/HubbleNetwork/sdk)
-            into the `hubble_sdk/` directory at ref:
+            Fetches hubble-device-sdk at `${{ steps.fetch.outputs.commit }}`
+            and rebuilds the vendored copies under `src/hubble/` and
+            `extras/hubble-device-sdk/`.
 
-            - Ref: `${{ steps.meta.outputs.ref }}`
-            - Source: https://github.com/HubbleNetwork/sdk/tree/${{ steps.meta.outputs.ref }}
-
-            Generated automatically by the *Sync Hubble SDK* workflow.
+            - Requested ref: `${{ inputs.ref }}`
           labels: |
             hubble-sdk-sync
           delete-branch: true

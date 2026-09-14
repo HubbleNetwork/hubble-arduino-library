@@ -17,8 +17,6 @@ extern "C" {
 /**
  * @brief Hubble BLE Network Function APIs
  * @defgroup hubble_ble_api BLE Network Function APIs
- * @since 0.1
- * @version 0.1
  * @{
  */
 
@@ -30,26 +28,35 @@ extern "C" {
 #define HUBBLE_BLE_UUID 0xFCA6
 
 /**
- * @brief Initializes the Hubble function with the given UTC time.
+ * @brief Maximum amount of data sendable in bytes
  *
- * Calling this function is essential before using @ref hubble_ble_advertise_get
+ * This is the maximum length of data that can be sent with Hubble.
+ * If other services or service data are advertised then this number
+ * will be smaller for your application given the finite length of
+ * advertisements.
+ */
+#define HUBBLE_BLE_MAX_DATA_LEN 13
+
+/**
+ * @brief Fixed header size of a Hubble BLE advertisement in bytes.
  *
+ * Every advertisement produced by @ref hubble_ble_advertise_get contains
+ * this many fixed-overhead bytes (UUID prefix, device address, and
+ * authentication tag) before any caller-supplied data.
+ *
+ * Use this to size the output buffer:
  * @code
- * uint64_t current_utc_time = 1633072800000; // Example UTC time in milliseconds
- * static uint8_t master_key[CONFIG_HUBBLE_KEY_SIZE] = {...};
- * int ret = hubble_ble_init(current_utc_time, master_key);
+ * uint8_t buf[HUBBLE_BLE_ADV_HEADER_SIZE + my_data_len];
+ * size_t buf_len = sizeof(buf);
+ * hubble_ble_advertise_get(data, my_data_len, buf, &buf_len);
  * @endcode
  *
- * @param utc_time The UTC time in milliseconds since the Unix epoch (January 1, 1970).
- *                 Set to 0 to set later via hubble_ble_utc_set
- * @param key An opaque pointer to the key. If NULL, must be set with hubble_ble_key_set
- *            before getting advertisements.
- *
- * @return
- *          - 0 on success.
- *          - Non-zero on failure.
+ * The maximum possible output length is:
+ * @code
+ * HUBBLE_BLE_ADV_HEADER_SIZE + HUBBLE_BLE_MAX_DATA_LEN   // = 25 bytes
+ * @endcode
  */
-int hubble_ble_init(uint64_t utc_time, const void *key);
+#define HUBBLE_BLE_ADV_HEADER_SIZE 12U
 
 /**
  * @brief Retrieves advertisements from the provided data.
@@ -70,6 +77,7 @@ int hubble_ble_init(uint64_t utc_time, const void *key);
  * The following advertisement packet shows a valid example and where the
  * returned data fits in.
  *
+ * @code
  * | len   | ad type | data   | len                  | ad type | data       |
  * |-------+---------+--------+----------------------+---------+------------|
  * | 0x03  | 0x03    | 0xFCA6 | out_len + 0x01       | 0x16    | ad_data    |
@@ -77,17 +85,19 @@ int hubble_ble_init(uint64_t utc_time, const void *key);
  * |       |         |        | (out_len is adv_data |         |            |
  * |       |         |        |  len - returned by   |         |            |
  * |       |         |        |  this API)           |         |            |
- *
+ * @endcode
  *
  * @note - This function is neither thread-safe nor reentrant. The caller must
  *         ensure proper synchronization.
- *       - The payload is encrypted using the key set by @ref hubble_ble_key_set
+ *       - The payload is encrypted using the key set by @ref hubble_key_set
  *       - Legacy packet type (Extended Advertisements not supported)
  *
  * @param input Pointer to the input data.
  * @param input_len Length of the input data.
  * @param out Output buffer to place data into
- * @param out_len in: Maximum length in out buffer, out: Advertisement length
+ * @param out_len in: Size of the @p out buffer in bytes. Must be at least
+ *               @ref HUBBLE_BLE_ADV_HEADER_SIZE + @p input_len.
+ *               out: Actual advertisement length written.
  *
  * @return
  *          - 0 on success
@@ -97,26 +107,15 @@ int hubble_ble_advertise_get(const uint8_t *input, size_t input_len,
 			     uint8_t *out, size_t *out_len);
 
 /**
- * @brief Sets the current UTC time in the Hubble BLE Network.
+ * @brief Gets the time remaining until the BLE advertisement expires.
  *
- * @param utc_time The UTC time in milliseconds since the Unix epoch (January 1, 1970).
+ * Returns the number of milliseconds until the current BLE advertisement
+ * expires and a new one should be generated. This helps applications refresh
+ * their advertisements in synchronization with the EID rotation period.
  *
- * @return
- *          - 0 on success.
- *          - Non-zero on failure.
+ * @return Milliseconds until the current advertisement expires.
  */
-int hubble_ble_utc_set(uint64_t utc_time);
-
-/**
- * @brief Sets the encryption key for advertisement data creation.
- *
- * @param key An opaque pointer to the key.
- *
- * @return
- *         - 0 on success.
- *         - Non-zero on failure.
- */
-int hubble_ble_key_set(const void *key);
+uint32_t hubble_ble_advertise_expiration_get(void);
 
 /**
  * @}
