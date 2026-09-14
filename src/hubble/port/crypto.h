@@ -15,16 +15,32 @@ extern "C" {
 #endif
 
 
+#define HUBBLE_NONCE_BUFFER_SIZE 16
+
+#define HUBBLE_AES_BLOCK_SIZE    16
+
+/* Valid range [0, 1023] */
+#define HUBBLE_MAX_SEQ_COUNTER   ((1 << 10) - 1)
+
+#ifndef CONFIG_HUBBLE_KEY_SIZE
+#if defined(CONFIG_HUBBLE_NETWORK_KEY_256)
+#define CONFIG_HUBBLE_KEY_SIZE 32
+#elif defined(CONFIG_HUBBLE_NETWORK_KEY_128)
+#define CONFIG_HUBBLE_KEY_SIZE 16
+#else
+#error "CONFIG_HUBBLE_NETWORK_KEY_256 or CONFIG_HUBBLE_NETWORK_KEY_128 must be defined."
+#endif
+#endif /* !CONFIG_HUBBLE_KEY_SIZE */
+
+#define HUBBLE_KEY_SIZE_BITS (CONFIG_HUBBLE_KEY_SIZE * 8)
+
 /**
- * @brief Hubble Crypto API.
+ * @brief Hubble Device SDK Crypto APIs.
  *
  * Cryptographic functions that need to be implemented by
  * a crypto provider.
  *
  * @defgroup hubble_crypto Hubble Network Crypto APIs
- * @since 0.1
- * @version 0.1
- *
  * @{
  */
 
@@ -54,7 +70,7 @@ int hubble_crypto_init(void);
  *
  * @param key A pointer to the encryption key (size: CONFIG_HUBBLE_KEY_SIZE).
  * @param nonce_counter A pointer to the nonce and counter buffer (size:
- *                      HUBBLE_BLE_NONCE_BUFFER_LEN).
+ *                      HUBBLE_NONCE_BUFFER_SIZE).
  * @param data A pointer to the input data buffer to be encrypted.
  * @param len The length of the input data in bytes.
  * @param output A pointer to the output buffer where the encrypted data will be
@@ -63,7 +79,7 @@ int hubble_crypto_init(void);
  * @return Returns 0 on success, or a non-zero error code on failure.
  */
 int hubble_crypto_aes_ctr(const uint8_t key[CONFIG_HUBBLE_KEY_SIZE],
-			  uint8_t nonce_counter[HUBBLE_BLE_NONCE_BUFFER_LEN],
+			  uint8_t nonce_counter[HUBBLE_NONCE_BUFFER_SIZE],
 			  const uint8_t *data, size_t len, uint8_t *output);
 
 /**
@@ -77,7 +93,7 @@ int hubble_crypto_aes_ctr(const uint8_t key[CONFIG_HUBBLE_KEY_SIZE],
  * @param output Pointer to the buffer where the CMAC (message
  *               authentication code) will be stored. This buffer must
  *               be large enough to hold the CMAC value
- *              (typically the size of the AES block, 16 bytes).
+ *               (typically the size of the AES block, 16 bytes).
  *
  * @return 0 on success, non-zero on error.
  */

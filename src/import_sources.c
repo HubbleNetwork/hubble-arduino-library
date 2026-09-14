@@ -6,9 +6,9 @@
 #define CONFIG_HUBBLE_BLE_NETWORK_TIMER_COUNTER_DAILY
 
 #if defined(ARDUINO_ARCH_MBED)
-#include "../hubble_sdk/src/crypto/mbedtls.c"
+#include "../extras/hubble-device-sdk/src/crypto/mbedtls.c"
 #else // defined(ARDUINO_ARCH_MBED)
-#include "../hubble_sdk/src/crypto/psa.c"
+#include "../extras/hubble-device-sdk/src/crypto/psa.c"
 #endif
 
-#include "../hubble_sdk/src/hubble_ble.c"
+#include "../extras/hubble-device-sdk/src/hubble_ble.c"
