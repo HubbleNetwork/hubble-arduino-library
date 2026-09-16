@@ -1,82 +1,100 @@
+/*
+ * Copyright (c) 2026 Hubble Network, Inc.
+ * SPDX-License-Identifier: Apache-2.0
+ */
+
 #include "b64.h"
+
 #include <errno.h>
 #include <stdbool.h>
-#include <string.h>
 
-static const int b64invs[] = { 62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58,
-	59, 60, 61, -1, -1, -1, -1, -1, -1, -1, 0, 1, 2, 3, 4, 5,
-	6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20,
-	21, 22, 23, 24, 25, -1, -1, -1, -1, -1, -1, 26, 27, 28,
-	29, 30, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42,
-	43, 44, 45, 46, 47, 48, 49, 50, 51 };
+static const int8_t _b64_invs[] = {
+	62, -1, -1, -1, 63, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, -1,
+	-1, -1, -1, -1, -1, -1, 0,  1,  2,  3,  4,  5,  6,  7,  8,  9,
+	10, 11, 12, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25,
+	-1, -1, -1, -1, -1, -1, 26, 27, 28, 29, 30, 31, 32, 33, 34, 35,
+	36, 37, 38, 39, 40, 41, 42, 43, 44, 45, 46, 47, 48, 49, 50, 51};
 
-static bool b64_isvalidchar(char c)
+static int _b64_value(char c)
 {
-	if (c >= '0' && c <= '9')
-		return true;
-	if (c >= 'A' && c <= 'Z')
-		return true;
-	if (c >= 'a' && c <= 'z')
-		return true;
-	if (c == '+' || c == '/' || c == '=')
-		return true;
-	return false;
-}
+	unsigned char uc = (unsigned char)c;
 
-size_t b64_decoded_size(const char *in)
-{
-	size_t len;
-	size_t ret;
-	size_t i;
-
-	if (in == NULL)
-		return 0;
-
-	len = strlen(in);
-	ret = len / 4 * 3;
-
-	for (i=len; i-->0; ) {
-		if (in[i] == '=') {
-			ret--;
-		} else {
-			break;
-		}
+	if ((uc < (unsigned char)'+') || (uc > (unsigned char)'z')) {
+		return -1;
 	}
 
-	return ret;
+	return _b64_invs[uc - '+'];
+}
+
+static bool _b64_is_space(char c)
+{
+	return (c == ' ') || (c == '\t') || (c == '\n') || (c == '\r') ||
+	       (c == '\v') || (c == '\f');
 }
 
 int b64_decode(const char *in, uint8_t *out, size_t outlen)
 {
-	size_t len;
-	size_t i;
-	size_t j;
-	int v;
+	uint32_t acc = 0U;
+	unsigned int bits = 0U;
+	unsigned int group = 0U;
+	bool padded = false;
+	size_t n = 0U;
 
-	if (in == NULL || out == NULL)
+	if ((in == NULL) || (out == NULL)) {
 		return -EINVAL;
+	}
 
-	len = strlen(in);
-	if (outlen < b64_decoded_size(in) || len % 4 != 0)
-		return -EINVAL;
+	for (const char *p = in; *p != '\0'; p++) {
+		int v;
 
-	for (i=0; i<len; i++) {
-		if (!b64_isvalidchar(in[i])) {
+		if (_b64_is_space(*p)) {
+			continue;
+		}
+
+		if (*p == '=') {
+			/* Padding only valid in last two positions of a four-digit group. */
+			if (group < 2U) {
+				return -EINVAL;
+			}
+
+			padded = true;
+			group = (group + 1U) & 3U;
+			continue;
+		}
+
+		/* Padding ends the string; nothing may follow it. */
+		if (padded) {
 			return -EINVAL;
+		}
+
+		v = _b64_value(*p);
+		if (v < 0) {
+			return -EINVAL;
+		}
+
+		acc = (acc << 6) | (uint32_t)v;
+		bits += 6U;
+		group = (group + 1U) & 3U;
+
+		if (bits >= 8U) {
+			bits -= 8U;
+
+			if (n >= outlen) {
+				return -EINVAL;
+			}
+
+			out[n++] = (uint8_t)((acc >> bits) & 0xFFU);
 		}
 	}
 
-	for (i=0, j=0; i<len; i+=4, j+=3) {
-		v = b64invs[in[i]-43];
-		v = (v << 6) | b64invs[in[i+1]-43];
-		v = in[i+2]=='=' ? v << 6 : (v << 6) | b64invs[in[i+2]-43];
-		v = in[i+3]=='=' ? v << 6 : (v << 6) | b64invs[in[i+3]-43];
+	/* One digit carries 6 bits: too few for a byte, so it was truncated. */
+	if (group == 1U) {
+		return -EINVAL;
+	}
 
-		out[j] = (v >> 16) & 0xFF;
-		if (in[i+2] != '=')
-			out[j+1] = (v >> 8) & 0xFF;
-		if (in[i+3] != '=')
-			out[j+2] = v & 0xFF;
+	/* An exact fit is required. */
+	if (n != outlen) {
+		return -EINVAL;
 	}
 
 	return 0;

@@ -6,16 +6,16 @@ The `HubbleNetwork` Arduino library enables Arduino devices to connect to and ad
 ## Contents
 
 * [Prerequisites](#prerequisites)
-* [Quick start / Example sketch](#quick-start--example-sketch)
+* [Supported architectures](#supported-architectures)
+* [Quick start / Example sketch](#quick-start--example-sketches)
 * [API (functions & behavior)](#api-functions--behavior)
 * [Installation](#installation)
-* [Building and running](#building-and-running)
+* [Building and running](#building--running)
+* [Testing](#testing)
 * [Library structure](#library-structure)
 * [Maintenance & syncing](#maintenance--syncing)
-* [Versioning & release](#release-and-versioning)
-* [Supported architectures](#supported-architectures)
 * [Troubleshooting & debugging](#troubleshooting--debugging)
-* [Contact & support](#contact-and-support)
+* [Contact & support](#contact--support)
 * [License](#license)
 
 
@@ -24,34 +24,67 @@ The `HubbleNetwork` Arduino library enables Arduino devices to connect to and ad
 * You must have an organization ID and API token from Hubble, and use those to generate device keys required to connect to the Hubble network.
   * [Get API keys](https://docs.hubble.com/docs/api-specification/hubble-platform-api#api-access)
   * Self-serve sign up flows available soon, until then [Contact Us](https://hubble.com/contact-us)
-* This Arduino library depends on:
-
-  * **PSACrypto** (for crypto primitives)
-  * **ArduinoBLE** (BLE stack)
-    These are required in `library.properties`.
 * The Hubble device key provided to `begin()` must be a Base64-encoded key (the library decodes this into a 32-byte master key). See the API notes below.
+* This Arduino library depends on:
+  * BLE-capable board
+  * BLE stack
+    * **ArduinoBLE** (for most boards)
+    * **If using esp32 core, version 3.0.0+**
+      * Some esp32's are not supported by ArduinoBLE. Instead, the Hubble library uses the esp32 core BLE driver.
+      * ArduinoBLE will not be used. Having ArduinoBLE installed anyway will *not* be problematic.
+  * Crypto driver
+    * The Hubble SDK requires AES-CTR and AES-CMAC implementations. Those should be provided through a crypto library.
+    * Currently, supported options are using MbedTLS or PSA Crypto provided through the Arduino core.
 
 
-## Quick start / Example sketch
+## Supported architectures
+
+* The library metadata lists `architectures=*`, indicating broad architecture support (limited by the dependency ArduinoBLE).
+
+
+### Tested cores
+
+The following cores have been tested:
+* Arduino Mbed OS Nano Boards
+* esp32
+
+### Extra core instructions:
+* Arduino Mbed OS Nano Boards
+  * There likely will be compilation warnings as some ArduinoBLE functionality is deprecated. The build still succeeds and flashes as normal.
+* esp32
+  * Make sure to enable logging to aid in debugging:
+  * Tools > USB CDC on Boot > Enable
+
+If you have a BLE-capable Arduino, that supports ArduinoBLE or is an esp32, and can't build the Hubble library, [contact us](#contact--support).
+
+
+## Quick start / example sketches
+
+Get started with a library example, or with the simple sketch below.
+
+### Library examples
+
+| Example | What it does |
+| --- | --- |
+| [BleBeacon](examples/BleBeacon/) | Broadcasts empty packets to Hubble terrestrial network |
+| [BleBeaconCli](examples/BleBeaconCli/) |  Sets up a serial console to provision your device and send custom data |
+
+### Simple sketch
+
+Paste in this simple sketch below:
 
 ```cpp
 #include <Arduino.h>
 #include <HubbleNetwork.h>
 
-// Helper: produce current UTC in seconds since Unix epoch.
-// On many Arduinos you must provide real UTC time yourself (RTC, NTP, or host).
-uint32_t getUtcMillis() {
-  // TODO: replace with real RTC or network-provided epoch ms
-  return 1700000000UL; // example epoch seconds
-}
-
-const char* DEVICE_KEY_BASE64 = "BASE64_ENCODED_32B_KEY"; // replace with generated device key
+// TODO: replace with your generated device key.
+const char* HUBBLE_KEY_B64 = "BASE64_ENCODED_32B_KEY";
 
 void setup() {
   Serial.begin(115200);
 
   // Initialize Hubble network. Return value indicates success.
-  if (!HubbleNetwork.begin(getUtcMillis(), DEVICE_KEY_BASE64)) {
+  if (!HubbleNetwork.begin(millis(), HUBBLE_KEY_B64)) {
     Serial.println("HubbleNetwork.begin() failed");
     while (1) delay(1000);
   }
@@ -76,21 +109,19 @@ void loop() {
 }
 ```
 
-Notes:
-
-* `begin()` expects UTC time **in seconds since Unix epoch** and a **base64-encoded key** string. The library will decode the key and initialize the crypto/ble internals.
-* `setData()` accepts a data buffer up to **13 bytes** (the library packages this into the BLE service data).
-* `start()` takes an advertising interval parameter in units of **0.625 ms**; the default argument is **3200** (3200 × 0.625 ms = 2000 ms = 2 s).
-
 
 ## API (functions & behavior)
 
 The Arduino wrapper exposes the `HubbleNetwork` class with the following functions:
 
-**`bool HubbleNetwork.begin(uint32_t utc_time, const char *key)`**
+**`bool HubbleNetwork.begin(uint64_t initialTime, const char *key)`**
 
 * Initialize the Hubble BLE subsystem and core SDK state.
-* `utc_time` is UTC in seconds since Unix epoch; `key` is the Base64-encoded device key.
+* `initialTime` is the starting value used for key rotation.
+* `key` is the Base64-encoded device key.
+* The "Encryption Mode" the key was issued with on the dashboard changes the meaning of `initialTime`:
+    * **Device Uptime** (this library's default, set in `src/hubble_config.h`): a starting number used to track key rotation. This can be any value - `millis()`, 0, etc.
+    * **Unix time**: the current time, in milliseconds, since the Unix epoch. 0 is rejected in this mode.
 * Returns `true` on success. Failure conditions include invalid base64 key or failure to initialize BLE.
 
 **`bool HubbleNetwork.end(void)`**
@@ -105,10 +136,11 @@ The Arduino wrapper exposes the `HubbleNetwork` class with the following functio
 
 * Set the 13-byte (maximum) payload to be advertised. The library constructs the Hubble BLE service data and updates the advertisement. If advertising is active, advertisement is briefly stopped while the new payload is installed and then restarted at the previous interval. Returns `true` on success.
 * The data set will be stored and the advertisement updated periodically with my up-to-date encryption credentials.
+* There is an overload, **`bool HubbleNetworkClass::setData(const char *str)`**, to directly input a string as payload data.
 
 **`bool HubbleNetwork.start(uint16_t advertisingInterval = ADV_INTERVAL_SLOW)`**
 
-* Start advertising on the Hubble network. `advertisingInterval` is specified in units of 0.625 ms. If already started, `start()` stops and restarts advertising. Returns `true` on success.
+* Start advertising on the Hubble network. `advertisingInterval` is specified in units of 0.625 ms. The default argument is **3200** (3200 × 0.625 ms = 2000 ms = 2 s). If already started, `start()` stops and restarts advertising. Returns `true` on success.
 
 **`bool HubbleNetwork.stop(void)`**
 
@@ -120,11 +152,10 @@ The Arduino wrapper exposes the `HubbleNetwork` class with the following functio
 1. Ensure dependencies are available in your Arduino environment:
 
    * Install **ArduinoBLE** (available from the Library Manager).
-   * Install **PSACrypto** (or include it as a library dependency).
 2. Install this library:
 
-   * Option A — **Arduino Library Manager** (if published): search for `HubbleNetwork` and install.
-   * Option B — **Manual**: clone or download this repository and place it under your Arduino `libraries/` folder:
+   * Option A : **Arduino Library Manager**: search for `HubbleNetwork` and install.
+   * Option B : **Manual**: clone or download this repository and place it under your Arduino `libraries/` folder:
      `~/Arduino/libraries/hubble-arduino-library/`
 3. Include the library from your sketch:
 
@@ -134,15 +165,19 @@ The Arduino wrapper exposes the `HubbleNetwork` class with the following functio
 
 The library metadata (`library.properties`) lists the `depends` libraries and author/maintainer information.
 
-
-## Building and running
+## Building & running
 
 * Provide a valid, Base64-encoded device key (generated from your Hubble organization account / core SDK) to `begin()`.
-* Ensure your board supports ArduinoBLE and the hardware BLE implementation. The library will call `BLE.begin()` and fail if the BLE subsystem cannot initialize. Typical failure points are:
+* Ensure your board supports ArduinoBLE (or is an ESP32) and the hardware BLE implementation.
+* Upload one of our examples, or a custom sketch, to your board.
 
-  * Invalid base64 key (decoding fails). The implementation decodes the key into a 32-byte master key.
-  * `hubble_ble_init()` failing (core SDK initialization).
-  * `BLE.begin()` returning false.
+
+## Testing
+
+1. Install the Hubble Connect mobile app and sign in.
+2. Enable Bluetooth and location permissions in the app.
+3. The device name associated with your Hubble key should appear under "My Devices".
+4. Check https://dash.hubble.com/dashboard for your device's location and any custom payload you added.
 
 
 ## Library structure
@@ -150,27 +185,29 @@ The library metadata (`library.properties`) lists the `depends` libraries and au
 * `library.properties` — Library metadata (name, version, dependencies).
 * `src/HubbleNetwork.h` — Public Arduino wrapper header with documentation for each function.
 * `src/HubbleNetwork.cpp` — Implementation: BLE management, advertisement buffer construction, `begin`/`start`/`stop`/`setData` logic.
+* `src/hubble_config.h` — The one build configuration every sketch using the library shares.
+* `src/hubble_platform.h` — Picks the BLE backend from the Arduino core.
+* `src/hubble_ble_*.cpp` — The selectable BLE backends, one file each.
+* `src/hubble/` — The SDK's public headers, the one directory Arduino puts on a sketch's include path.
+* `extras/hubble-device-sdk/src/` — Required files from the Hubble SDK.
+* `extras/hubble-device-sdk-files.txt` — The list of SDK files the sync workflow copies into `extras/hubble-device-sdk/src/`.
+* `src/import_sources.c` — Selectively compiles the correct files from the SDK.
 
 
 ## Maintenance & syncing
 
-This library wraps the functionality provided by the core Hubble Networks SDK located at [HubbleNetwork/sdk](https://github.com/HubbleNetwork/sdk).
+This library wraps the functionality provided by the core Hubble Networks SDK located at [HubbleNetwork/hubble-device-sdk](https://github.com/HubbleNetwork/hubble-device-sdk).
 
-Due to how Arduino libraries are managed, this SDK is manually synced to this library and headers placed into `src/` where they can be referenced. Please contact support if there is an issue with this syncing or this library has become outdated.
-
-
-## Supported architectures
-
-* The library metadata lists `architectures=*`, indicating broad architecture support (limited by the dependencies: PSACrypto and ArduinoBLE).
+Arduino libraries cannot depend on a submodule, so rather than pin the SDK with one, the [Sync Hubble SDK](.github/workflows/sync-sdk.yml) workflow clones the SDK at a given ref and copies in only the files this library compiles (see [Library structure](#library-structure)): the public headers into `src/hubble/`, and the files listed in `extras/hubble-device-sdk-files.txt` (everything `src/import_sources.c` reaches) into `extras/hubble-device-sdk/src/`, where Arduino won't compile it on its own. It is currently pinned at the `v3.0.0` release. To move that pin, run the workflow from the Actions tab with the new ref (branch, tag, or SHA) and merge the pull request it opens. Please [contact us](#contact--support) if there is an issue with this syncing or this library has become outdated.
 
 
 ## Troubleshooting & debugging
 
 **`begin()` fails**
 
-* Base64 key decode failed ⇒ ensure the key is a valid Base64 string and decodes to the expected 32 bytes. The library decodes the key and returns `false` if decoding fails.
-* `hubble_ble_init()` failed ⇒ ensure the core SDK is available and the provided master key / time are correct.
-* `BLE.begin()` failed ⇒ check hardware support for ArduinoBLE and other libraries that may be holding the BLE controller.
+* Base64 key decode failed ⇒ ensure the key is a valid Base64 string and decodes to the expected 32 bytes (`CONFIG_HUBBLE_KEY_SIZE`). The library decodes the key and returns `false` if decoding fails, which a 128-bit key pasted into this 256-bit build will do.
+* `hubble_init()` failed ⇒ ensure the core SDK is available and the provided master key / time are correct.
+* `hubbleBleBegin()` failed ⇒ check hardware support for ArduinoBLE (or esp32 library) and other libraries that may be holding the BLE controller.
 
 **`setData()` fails**
 
@@ -178,17 +215,17 @@ Due to how Arduino libraries are managed, this SDK is manually synced to this li
 
 **`start()` fails / advertising does not appear**
 
-* `BLE.advertise()` returned false. Verify board BLE support, and that `BLE.setAdvertisingInterval()` receives a valid interval (units: 0.625 ms). If you change the interval, `start()` stops and restarts advertising.
+* `hubbleBleAdvertise()` returned false. Verify board BLE support, and that your advertising interval is valid (units: 0.625 ms). If you change the interval, `start()` stops and restarts advertising.
 
 **General debug tips**
 
 * Print return values from `begin()`, `setData()`, and `start()` to serial to isolate where failure occurs.
-* Confirm the master key is 32 bytes (after base64 decode). The implementation stores the master key in a 32-byte buffer.
+* Confirm the master key is 32 bytes (after base64 decode). The library is built for AES-256 (`CONFIG_HUBBLE_NETWORK_KEY_256`) and sizes the master key buffer from it. A 16-byte key is rejected here; change `hubble_config.h` to `CONFIG_HUBBLE_NETWORK_KEY_128` if that is what your network issues.
 
 
 ## Contact & support
 
-Maintainer: Paul Buckley `<paul@hubble.com>`
+Maintainer: Micah Morefield `micah@hubble.com`
 
 For support, email `support@hubble.com`
 
