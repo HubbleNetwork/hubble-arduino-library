@@ -2,9 +2,10 @@ name: Sync Hubble SDK
 
 # An Arduino library cannot fetch submodules, so rather than pin the SDK with
 # one, this workflow clones HubbleNetwork/hubble-device-sdk itself and copies
-# in only the files this library actually compiles: the sources named in
-# src/import_sources.c (plus the private headers they pull in with them),
-# into extras/hubble-device-sdk/src/, and the public include/hubble/ headers
+# in only the files this library actually compiles: the sources and private
+# headers listed in extras/hubble-device-sdk-files.txt (what
+# src/import_sources.c reaches for), into extras/hubble-device-sdk/src/, and
+# the public include/hubble/ headers
 # into src/hubble/. Everything else in the SDK is left behind. Use this
 # workflow to move that pin and rebuild the copies.
 
@@ -49,38 +50,22 @@ jobs:
           rm -rf src/hubble
           cp -a sdk-src/include/hubble src/hubble
 
-          # Only the sources src/import_sources.c actually compiles, plus the
-          # private headers they include -- not the rest of the SDK's src/.
+          # Only the files listed in extras/hubble-device-sdk-files.txt: the
+          # sources src/import_sources.c actually compiles, plus the private
+          # headers they include -- not the rest of the SDK's src/.
           # This has to live under extras/, not src/, because Arduino
           # recursively compiles every .c file under src/ on its own; putting
           # these there would compile them a second time as their own
           # translation units, on top of import_sources.c's #include of them,
           # and fail to link on the duplicate symbols.
           rm -rf extras/hubble-device-sdk
-          mkdir -p extras/hubble-device-sdk/src/crypto extras/hubble-device-sdk/src/utils
-          cp -a sdk-src/src/hubble.c extras/hubble-device-sdk/src/hubble.c
-          cp -a sdk-src/src/hubble_ble.c extras/hubble-device-sdk/src/hubble_ble.c
-          cp -a sdk-src/src/hubble_crypto.c extras/hubble-device-sdk/src/hubble_crypto.c
-          cp -a sdk-src/src/hubble_priv.h extras/hubble-device-sdk/src/hubble_priv.h
-          cp -a sdk-src/src/crypto/mbedtls.c extras/hubble-device-sdk/src/crypto/mbedtls.c
-          cp -a sdk-src/src/crypto/psa.c extras/hubble-device-sdk/src/crypto/psa.c
-          cp -a sdk-src/src/utils/hdcv.h extras/hubble-device-sdk/src/utils/hdcv.h
-          cp -a sdk-src/src/utils/macros.h extras/hubble-device-sdk/src/utils/macros.h
+          while IFS= read -r f || [ -n "$f" ]; do
+            case "$f" in ''|'#'*) continue ;; esac
+            mkdir -p "extras/hubble-device-sdk/src/$(dirname "$f")"
+            cp -a "sdk-src/src/$f" "extras/hubble-device-sdk/src/$f"
+          done < extras/hubble-device-sdk-files.txt
 
           rm -rf sdk-src
-
-      - name: Verify the committed copies match
-        if: github.event_name != 'workflow_dispatch'
-        run: |
-          set -euo pipefail
-          git add -A src/hubble extras/hubble-device-sdk
-          if git diff --cached --quiet HEAD -- src/hubble extras/hubble-device-sdk; then
-            echo "The vendored SDK files match the SDK at ${{ steps.fetch.outputs.short }}."
-            exit 0
-          fi
-          echo "::error::The vendored SDK files are copies of the SDK pinned at ${{ steps.fetch.outputs.short }}, not places to make changes. To refresh them, run this workflow from the Actions tab."
-          git diff --cached --stat HEAD -- src/hubble extras/hubble-device-sdk
-          exit 1
 
       - name: Create pull request
         uses: peter-evans/create-pull-request@v7
