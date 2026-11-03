@@ -42,7 +42,7 @@
 /* Default to using PSA Crypto. */
 #ifdef __has_include
 #if !__has_include(<psa/crypto.h>)
-#error "No Hubble crypto backend for this Arduino core: it has no PSA Crypto, and it is not an Mbed OS core. See the 'Crypto backend' section of README.md."
+#error "No Hubble crypto backend is currently supported for this Arduino core."
 #endif
 #endif
 

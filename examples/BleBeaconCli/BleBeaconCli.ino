@@ -21,6 +21,7 @@
  *
  * TESTING
  *   1. Open the Serial Monitor at 115200 baud.
+ *      -- Make sure to set a line ending that is not "No Line Ending".
  *   2. Get a Hubble device key from https://dash.hubble.com/dashboard.
  *      -- Add a Device > I just need a Device Key.
  *      -- Leave "Encryption" as default. Set "Encryption Mode" to

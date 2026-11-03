@@ -95,7 +95,8 @@ void setup() {
     Serial.println("HubbleNetwork.setData() failed");
   }
 
-  // Start advertising. Default interval units are 0.625ms; default parameter = 3200 (2s).
+  /* Start advertising. Interval units are 0.625ms. Default parameter:
+     HubbleNetwork.ADV_INTERVAL_SLOW = 1600 (1 s). */
   if (!HubbleNetwork.start()) {
     Serial.println("HubbleNetwork.start() failed");
   }
@@ -118,13 +119,13 @@ The Arduino wrapper exposes the `HubbleNetwork` class with the following functio
 
 * Initialize the Hubble BLE subsystem and core SDK state.
 * `initialTime` is the starting value used for key rotation.
-* `key` is the Base64-encoded device key.
+* `key` is the Base64-encoded device key, exactly as the Hubble dashboard issues it.
 * The "Encryption Mode" the key was issued with on the dashboard changes the meaning of `initialTime`:
     * **Device Uptime** (this library's default, set in `src/hubble_config.h`): a starting number used to track key rotation. This can be any value - `millis()`, 0, etc.
     * **Unix time**: the current time, in milliseconds, since the Unix epoch. 0 is rejected in this mode.
 * Returns `true` on success. Failure conditions include invalid base64 key or failure to initialize BLE.
 
-**`bool HubbleNetwork.end(void)`**
+**`void HubbleNetwork.end(void)`**
 
 * Deinitialize and release BLE. Returns `true` on success.
 
@@ -135,12 +136,12 @@ The Arduino wrapper exposes the `HubbleNetwork` class with the following functio
 **`bool HubbleNetwork.setData(const uint8_t *data, size_t len)`**
 
 * Set the 13-byte (maximum) payload to be advertised. The library constructs the Hubble BLE service data and updates the advertisement. If advertising is active, advertisement is briefly stopped while the new payload is installed and then restarted at the previous interval. Returns `true` on success.
-* The data set will be stored and the advertisement updated periodically with my up-to-date encryption credentials.
+* The data set will be stored and the advertisement updated periodically with encryption credentials.
 * There is an overload, **`bool HubbleNetworkClass::setData(const char *str)`**, to directly input a string as payload data.
 
 **`bool HubbleNetwork.start(uint16_t advertisingInterval = ADV_INTERVAL_SLOW)`**
 
-* Start advertising on the Hubble network. `advertisingInterval` is specified in units of 0.625 ms. The default argument is **3200** (3200 × 0.625 ms = 2000 ms = 2 s). If already started, `start()` stops and restarts advertising. Returns `true` on success.
+* Start advertising on the Hubble network. `advertisingInterval` is specified in units of 0.625 ms. The default argument is `ADV_INTERVAL_SLOW` = **1600** (1600 * 0.625 ms = 1000 ms). If already started, `start()` stops and restarts advertising. Returns `true` on success.
 
 **`bool HubbleNetwork.stop(void)`**
 
