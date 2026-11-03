@@ -7,6 +7,7 @@ The `HubbleNetwork` Arduino library enables Arduino devices to connect to and ad
 
 * [Prerequisites](#prerequisites)
 * [Supported architectures](#supported-architectures)
+* [Limitations](#limitations)
 * [Quick start / Example sketch](#quick-start--example-sketches)
 * [API (functions & behavior)](#api-functions--behavior)
 * [Installation](#installation)
@@ -56,6 +57,22 @@ The following cores have been tested:
   * Tools > USB CDC on Boot > Enable
 
 If you have a BLE-capable Arduino, that supports ArduinoBLE or is an esp32, and can't build the Hubble library, [contact us](#contact--support).
+
+
+## Limitations
+
+### Packet rebuild limits
+
+For security, every advertisement the library builds is encrypted with a number that is never reused (a *nonce*). There are 1024 of these per 24-hour key-rotation period. Each call below increments the nonce value:
+
+* each `start()`
+* each `setData()` while advertising, even if the data didn't change
+* each `advertisementGet()`
+* the automatic rebuild `poll()` does once a day
+
+Reusing an old nonce is a security vulnerability. So, once all 1024 nonces are used, attempting to update the advertisement will fail.
+
+To stay inside this limit, only call `setData()` when your payload changes, or update it no more than once every 2 minutes (720 times per day).
 
 
 ## Quick start / example sketches
@@ -224,6 +241,7 @@ Arduino libraries cannot depend on a submodule, so rather than pin the SDK with 
 **`setData()` fails**
 
 * `hubble_ble_advertise_get()` returned an error (payload build/crypto failure). Make sure data length is ≤13 bytes and the master key and SDK initialization succeeded.
+* It worked for a while, then started failing with `Re-using same nonce is insecure` in the log ⇒ the sketch has used up the 1024 advertisements allowed per 24 hours. Call `setData()` less often. See [Packet rebuild limits](#packet-rebuild-limits).
 
 **`start()` fails / advertising does not appear**
 
