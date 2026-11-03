@@ -20,7 +20,25 @@ extern "C" {
 
 uint64_t hubble_uptime_get(void)
 {
-    return (uint64_t)millis();
+	static uint32_t last_ms = 0;
+	static uint32_t wraps = 0;
+	uint32_t now_ms = millis();
+
+	/*
+	 * millis() is 32 bits and wraps every ~50 days. Wrapping the counter
+	 * would re-use EIDs, which is a security vulnerability. Extend the
+	 * counter to 64 bits by counting the 32 bit wraps.
+	 *
+	 * This logic only works if this function is guaranteed to be called at least
+	 * once per millis() wrap, so this is called in HubbleNetwork.poll().
+	 */
+	if (now_ms < last_ms) {
+		wraps++;
+	}
+
+	last_ms = now_ms;
+
+	return ((uint64_t)wraps << 32) | now_ms;
 }
 
 int hubble_log(enum hubble_log_level level, const char *format, ...)

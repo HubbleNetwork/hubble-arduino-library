@@ -311,6 +311,9 @@ uint32_t HubbleNetworkClass::msUntilRefresh(void) const
 
 void HubbleNetworkClass::poll(void)
 {
+	/* Keeps the uptime clock's millis() wrap tracking valid. */
+	(void)hubble_uptime_get();
+
 	if (this->bleBegun) {
 		hubbleBlePoll();
 	}
@@ -322,7 +325,7 @@ void HubbleNetworkClass::poll(void)
 
 	/*
 	 * Unsigned subtraction, so this stays correct across the millis()
-	 * wrap every ~49.7 days.
+	 * wrap.
 	 */
 	if ((millis() - this->advBuiltMs) < this->advValidMs) {
 		return;
