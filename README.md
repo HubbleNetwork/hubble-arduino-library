@@ -113,7 +113,18 @@ void loop() {
 
 ## API (functions & behavior)
 
-The Arduino wrapper exposes the `HubbleNetwork` class with the following functions:
+The Arduino wrapper exposes the `HubbleNetwork` class with the following constants and functions:
+
+### Constants
+
+| Name | Value | Meaning |
+| --- | --- | --- |
+| `HubbleNetwork.ADV_INTERVAL_FAST` | 160 (100 ms) | A fast advertising interval. |
+| `HubbleNetwork.ADV_INTERVAL_SLOW` | 1600 (1 s) | The slower advertising interval, default value. |
+| `HubbleNetwork.MAX_DATA_LEN` | 13 | The largest payload, in bytes, that `setData()` accepts. |
+| `HubbleNetwork.KEY_LEN` | 32 | The size, in bytes, of the master key after Base64 decoding. |
+
+### Functions
 
 **`bool HubbleNetwork.begin(uint64_t initialTime, const char *key)`**
 
