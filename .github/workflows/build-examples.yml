@@ -1,0 +1,45 @@
+name: Build examples
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: ArduinoBLE
+            fqbn: arduino:mbed_nano:nano33ble
+            platforms: |
+              - name: arduino:mbed_nano
+            libraries: |
+              - source-path: ./
+              - name: ArduinoBLE
+
+          - backend: ESP32
+            fqbn: esp32:esp32:esp32c6
+            platforms: |
+              - name: esp32:esp32
+                source-url: https://espressif.github.io/arduino-esp32/package_esp32_index.json
+            libraries: |
+              - source-path: ./
+
+    name: ${{ matrix.backend }} backend (${{ matrix.fqbn }})
+
+    steps:
+      - name: Checkout this repository
+        uses: actions/checkout@v4
+
+      - name: Compile the examples
+        uses: arduino/compile-sketches@v1
+        with:
+          fqbn: ${{ matrix.fqbn }}
+          platforms: ${{ matrix.platforms }}
+          libraries: ${{ matrix.libraries }}
+          sketch-paths: |
+            - examples

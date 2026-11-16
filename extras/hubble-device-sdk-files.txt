@@ -1,0 +1,14 @@
+# Files the Sync Hubble SDK workflow copies from the SDK's src/ into
+# extras/hubble-device-sdk/src/, one path per line, relative to src/.
+# These are the sources src/import_sources.c includes plus the private
+# headers they pull in. Add a file here when import_sources.c starts
+# reaching for it. Blank lines and lines starting with # are ignored.
+
+hubble.c
+hubble_ble.c
+hubble_crypto.c
+hubble_priv.h
+crypto/mbedtls.c
+crypto/psa.c
+utils/hdcv.h
+utils/macros.h

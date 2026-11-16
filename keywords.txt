@@ -1,0 +1,34 @@
+#######################################
+# Datatypes (KEYWORD1)
+#######################################
+
+HubbleNetwork	KEYWORD1
+HubbleNetworkClass	KEYWORD1
+
+#######################################
+# Methods and Functions (KEYWORD2)
+#######################################
+
+begin	KEYWORD2
+end	KEYWORD2
+setData	KEYWORD2
+start	KEYWORD2
+stop	KEYWORD2
+poll	KEYWORD2
+msUntilRefresh	KEYWORD2
+advertisementGet	KEYWORD2
+
+#######################################
+# Constants (LITERAL1)
+#######################################
+
+ADV_INTERVAL_FAST	LITERAL1
+ADV_INTERVAL_SLOW	LITERAL1
+MAX_DATA_LEN	LITERAL1
+KEY_LEN	LITERAL1
+
+HUBBLE_BLE_UUID	LITERAL1
+HUBBLE_BLE_MAX_DATA_LEN	LITERAL1
+HUBBLE_BLE_ADV_HEADER_SIZE	LITERAL1
+HUBBLE_BLE_ADV_MAX_LEN	LITERAL1
+CONFIG_HUBBLE_KEY_SIZE	LITERAL1

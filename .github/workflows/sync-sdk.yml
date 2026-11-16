@@ -1,0 +1,90 @@
+name: Sync Hubble SDK
+
+# An Arduino library cannot fetch submodules, so rather than pin the SDK with
+# one, this workflow clones HubbleNetwork/hubble-device-sdk itself and copies
+# in only the files this library actually compiles: the sources and private
+# headers listed in extras/hubble-device-sdk-files.txt (what
+# src/import_sources.c reaches for), into extras/hubble-device-sdk/src/, and
+# the public include/hubble/ headers
+# into src/hubble/. Everything else in the SDK is left behind. Use this
+# workflow to move that pin and rebuild the copies.
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: "SDK git ref (branch, tag, or SHA) in HubbleNetwork/hubble-device-sdk"
+        required: false
+        type: string
+        default: "v3.0.0"
+
+jobs:
+  sync-and-open-pr:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: write        # needed to push branch / create commits
+      pull-requests: write   # needed to open PRs
+
+    steps:
+      - name: Checkout current repo
+        uses: actions/checkout@v4
+
+      - name: Fetch the SDK at the requested ref
+        id: fetch
+        run: |
+          set -euo pipefail
+          git clone https://github.com/HubbleNetwork/hubble-device-sdk.git sdk-src
+          git -C sdk-src checkout --detach "${{ inputs.ref }}"
+
+          echo "commit=$(git -C sdk-src rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+          echo "short=$(git -C sdk-src rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Rebuild the copies from the fetched SDK
+        id: rebuild
+        run: |
+          set -euo pipefail
+
+          # Copied whole and replaced rather than merged, so that a file the
+          # SDK adds arrives on the next sync and one it drops does not linger.
+          rm -rf src/hubble
+          cp -a sdk-src/include/hubble src/hubble
+
+          # Only the files listed in extras/hubble-device-sdk-files.txt: the
+          # sources src/import_sources.c actually compiles, plus the private
+          # headers they include -- not the rest of the SDK's src/.
+          # This has to live under extras/, not src/, because Arduino
+          # recursively compiles every .c file under src/ on its own; putting
+          # these there would compile them a second time as their own
+          # translation units, on top of import_sources.c's #include of them,
+          # and fail to link on the duplicate symbols.
+          rm -rf extras/hubble-device-sdk
+          while IFS= read -r f || [ -n "$f" ]; do
+            case "$f" in ''|'#'*) continue ;; esac
+            mkdir -p "extras/hubble-device-sdk/src/$(dirname "$f")"
+            cp -a "sdk-src/src/$f" "extras/hubble-device-sdk/src/$f"
+          done < extras/hubble-device-sdk-files.txt
+
+          rm -rf sdk-src
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v7
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          add-paths: |
+            src/hubble
+            extras/hubble-device-sdk
+          branch: sync-hubble-sdk-${{ steps.fetch.outputs.short }}
+          commit-message: "Sync hubble-device-sdk @ ${{ steps.fetch.outputs.short }}"
+          committer: GitHub <noreply@github.com>
+          author: ${{ github.actor }} <${{ github.actor }}@users.noreply.github.com>
+          title: "Sync hubble-device-sdk @ ${{ steps.fetch.outputs.short }}"
+          body: |
+            Fetches hubble-device-sdk at `${{ steps.fetch.outputs.commit }}`
+            and rebuilds the vendored copies under `src/hubble/` and
+            `extras/hubble-device-sdk/`.
+
+            - Requested ref: `${{ inputs.ref }}`
+          labels: |
+            hubble-sdk-sync
+          delete-branch: true
